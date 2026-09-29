@@ -1,43 +1,55 @@
-# บิงซูภูเขาฟูจิ — ระบบสั่งขนมหวาน
+# บันทึกสำหรับการพัฒนาโปรเจกต์นี้ต่อ
 
-โปรเจกต์ระบบสั่งบิงซูสำหรับร้าน "บิงซูภูเขาฟูจิ"
+## เวอร์ชัน Next.js
+โปรเจกต์นี้ใช้ Next.js เวอร์ชันล่าสุด (App Router)
 
-## Stack
-- Next.js เวอร์ชันล่าสุด (App Router) — **JavaScript เท่านั้น ไม่ใช้ TypeScript**
-- Deploy บน Vercel
-- Supabase (`@supabase/supabase-js`) — client อยู่ที่ `lib/supabaseClient.js`
-- Environment variables: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-  (ตอนพัฒนาใช้ `.env.local`, ตอน deploy ตั้งใน Vercel — ห้าม commit)
+**สำคัญ:** ใน Dynamic Route (เช่น `app/order/[tableId]/page.js`) `params` (และ `searchParams`)
+ที่ Next.js ส่งเข้ามาเป็น **Promise** ไม่ใช่ object ธรรมดาอีกต่อไป
 
-## กฎสำคัญ: params ของ Dynamic Route เป็น Promise
-ใน Next.js เวอร์ชันล่าสุด `params` (และ `searchParams`) ของ Dynamic Route เป็น **Promise**
-ต้อง unwrap ด้วย `use()` จาก React **ทุกครั้ง**
+### วิธีใช้งานที่ถูกต้อง
 
-```js
-"use client";
-import { use } from "react";
+**Client Component** — ต้อง unwrap ด้วย `use()` จาก React เสมอ:
 
-export default function Page({ params }) {
-  const { tableId } = use(params); // ห้ามอ่าน params.tableId ตรง ๆ
+```jsx
+'use client';
+import { use } from 'react';
+
+export default function OrderPage({ params }) {
+  const { tableId } = use(params);
   // ...
 }
 ```
 
-- Client Component: ใช้ `use(params)` ตามด้านบน
-- Server Component (async): ใช้ `const { tableId } = await params;`
+**Server Component** — ต้อง `await` ก่อนใช้งาน:
 
-## โครงสร้างตารางฐานข้อมูล (มีอยู่แล้วใน Supabase — ไม่ต้องสร้างใหม่)
-อ้างอิงชื่อตารางและคอลัมน์ตามนี้ตลอดทั้งโปรเจกต์
+```jsx
+export default async function OrderPage({ params }) {
+  const { tableId } = await params;
+  // ...
+}
+```
 
-| ตาราง | คอลัมน์ |
-|---|---|
-| `sessions` | `id`, `table_number`, `adult_count`, `child_count`, `status`, `created_at` |
-| `menu_categories` | `id`, `name`, `sort_order` |
-| `menu_items` | `id`, `category_id`, `name` |
-| `orders` | `id`, `session_id`, `table_number`, `items` (jsonb), `status`, `created_at` |
+ห้ามเข้าถึง `params.tableId` ตรง ๆ โดยไม่ unwrap เด็ดขาด เพราะจะ error หรือ warning
 
-## หน้าที่วางแผนไว้
-- `/` — หน้าแรก (ทดสอบ deploy) มีลิงก์ไป `/generate-qr` และ `/kitchen`
-- `/generate-qr` — สร้าง QR สำหรับโต๊ะ
-- `/kitchen` — หน้าครัวดูออเดอร์
-- หน้าสั่งอาหารแบบ Dynamic Route (ขั้นตอนถัดไป — อย่าลืมกฎ `use(params)`)
+## ฐานข้อมูล Supabase (มีอยู่แล้ว — ห้ามสร้างตารางใหม่ทับ)
+
+- `sessions (id, table_number, adult_count, child_count, status, created_at)`
+- `menu_categories (id, name, sort_order)`
+- `menu_items (id, category_id, name)`
+- `orders (id, session_id, table_number, items jsonb, status, created_at)`
+
+ใช้ client จาก `lib/supabaseClient.js` ในการเชื่อมต่อทุกครั้ง
+
+## หน้าที่สร้างแล้ว
+
+- `/generate-qr` — ฟอร์มเปิดโต๊ะสำหรับพนักงาน (เช็ค session เปิดค้าง / ปิดโต๊ะเดิม / สร้าง QR)
+- `/order/[tableNumber]` — หน้าสั่งอาหารของลูกค้า (เช็ค session เปิด, แท็บหมวดหมู่, ตะกร้า, ส่งออเดอร์, เรียกเก็บเงิน) — ตัวอย่างการใช้ `use(params)` ตามที่ระบุด้านบน
+- `/kitchen` — จอครัว realtime แสดงออเดอร์สถานะ `received`/`cooking`, ปุ่ม "เริ่มทำ" (→ `cooking`) และ "จัดเสิร์ฟแล้ว" (→ `served` แล้วเอาการ์ดออกจากจอ)
+
+**สำคัญสำหรับ `/kitchen`:** ต้องเปิด Realtime ให้ตาราง `orders` ใน Supabase ก่อน มิฉะนั้น
+`postgres_changes` จะไม่ยิง event มา — ไปที่ Supabase Dashboard → Database → Replication
+(หรือ Table Editor → orders → เปิด toggle Realtime) แล้วเปิดใช้งานสำหรับตาราง `orders`
+
+## หน้าที่ยังไม่ได้สร้าง (ขั้นตอนถัดไป)
+
+- (ยังไม่มี — ครบตามที่ระบุไว้ในตอนแรกแล้ว)
